@@ -3,7 +3,7 @@ mod error;
 use error::{SdlFunctionResult, SdlResult};
 use sdl3_sys::{
     events::{SDL_Event, SDL_PollEvent, SDL_EVENT_QUIT},
-    init::{SDL_Init, SDL_INIT_VIDEO},
+    init::{SDL_Init, SDL_Quit, SDL_INIT_VIDEO},
     video::{SDL_CreateWindow, SDL_DestroyWindow},
 };
 
@@ -11,7 +11,9 @@ const WINDOW_WIDTH: i32 = 640;
 const WINDOW_HEIGHT: i32 = 480;
 
 fn main() -> SdlResult<()> {
-    init()?;
+    unsafe {
+        SDL_Init(SDL_INIT_VIDEO).ok()?;
+    }
 
     let window = unsafe {
         SDL_CreateWindow(
@@ -38,14 +40,8 @@ fn main() -> SdlResult<()> {
 
     unsafe {
         SDL_DestroyWindow(window);
+        SDL_Quit();
     }
 
-    Ok(())
-}
-
-fn init() -> SdlResult<()> {
-    unsafe {
-        SDL_Init(SDL_INIT_VIDEO).ok()?;
-    }
     Ok(())
 }

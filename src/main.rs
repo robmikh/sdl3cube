@@ -5,18 +5,26 @@ use error::{SdlFunctionResult, SdlResult};
 use sdl3_sys::{
     events::{SDL_Event, SDL_PollEvent, SDL_EVENT_QUIT},
     gpu::{
-        SDL_ClaimWindowForGPUDevice, SDL_CreateGPUDevice, SDL_CreateGPUGraphicsPipeline,
-        SDL_CreateGPUShader, SDL_DestroyGPUDevice, SDL_GPUColorTargetBlendState,
+        SDL_AcquireGPUCommandBuffer, SDL_BeginGPUCopyPass, SDL_ClaimWindowForGPUDevice,
+        SDL_CreateGPUBuffer, SDL_CreateGPUDevice, SDL_CreateGPUGraphicsPipeline,
+        SDL_CreateGPUShader, SDL_CreateGPUTransferBuffer, SDL_DestroyGPUDevice, SDL_EndGPUCopyPass,
+        SDL_GPUBufferCreateInfo, SDL_GPUBufferRegion, SDL_GPUColorTargetBlendState,
         SDL_GPUColorTargetDescription, SDL_GPUDepthStencilState, SDL_GPUGraphicsPipelineCreateInfo,
         SDL_GPUGraphicsPipelineTargetInfo, SDL_GPUMultisampleState, SDL_GPURasterizerState,
-        SDL_GPUSampleCount, SDL_GPUShaderCreateInfo, SDL_GPUStencilOpState, SDL_GPUVertexAttribute,
+        SDL_GPUSampleCount, SDL_GPUShaderCreateInfo, SDL_GPUStencilOpState,
+        SDL_GPUTransferBufferCreateInfo, SDL_GPUTransferBufferLocation, SDL_GPUVertexAttribute,
         SDL_GPUVertexBufferDescription, SDL_GPUVertexInputState, SDL_GetGPUDeviceDriver,
+        SDL_MapGPUTransferBuffer, SDL_ReleaseGPUBuffer, SDL_ReleaseGPUFence,
+        SDL_ReleaseGPUGraphicsPipeline, SDL_ReleaseGPUShader, SDL_ReleaseGPUTransferBuffer,
+        SDL_ReleaseWindowFromGPUDevice, SDL_SubmitGPUCommandBufferAndAcquireFence,
+        SDL_UnmapGPUTransferBuffer, SDL_UploadToGPUBuffer, SDL_WaitForGPUFences,
         SDL_GPU_BLENDFACTOR_ONE, SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-        SDL_GPU_BLENDFACTOR_SRC_ALPHA, SDL_GPU_BLENDOP_ADD, SDL_GPU_COMPAREOP_INVALID,
-        SDL_GPU_CULLMODE_BACK, SDL_GPU_FILLMODE_FILL, SDL_GPU_FRONTFACE_CLOCKWISE,
-        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST, SDL_GPU_SHADERFORMAT_SPIRV,
-        SDL_GPU_SHADERSTAGE_FRAGMENT, SDL_GPU_SHADERSTAGE_VERTEX, SDL_GPU_STENCILOP_INVALID,
-        SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREFORMAT_INVALID,
+        SDL_GPU_BLENDFACTOR_SRC_ALPHA, SDL_GPU_BLENDOP_ADD, SDL_GPU_BUFFERUSAGE_INDEX,
+        SDL_GPU_BUFFERUSAGE_VERTEX, SDL_GPU_COMPAREOP_INVALID, SDL_GPU_CULLMODE_BACK,
+        SDL_GPU_FILLMODE_FILL, SDL_GPU_FRONTFACE_CLOCKWISE, SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        SDL_GPU_SHADERFORMAT_SPIRV, SDL_GPU_SHADERSTAGE_FRAGMENT, SDL_GPU_SHADERSTAGE_VERTEX,
+        SDL_GPU_STENCILOP_INVALID, SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM,
+        SDL_GPU_TEXTUREFORMAT_INVALID, SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, SDL_GPU_VERTEXINPUTRATE_VERTEX,
     },
     init::{SDL_Init, SDL_Quit, SDL_INIT_VIDEO},
@@ -34,6 +42,12 @@ const FRAGMENT_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/f
 struct Vertex {
     pos: [f32; 4],
     color: [f32; 4],
+}
+
+impl Vertex {
+    fn new(pos: [f32; 4], color: [f32; 4]) -> Self {
+        Self { pos, color }
+    }
 }
 
 fn main() -> SdlResult<()> {
@@ -100,6 +114,110 @@ fn main() -> SdlResult<()> {
             props: 0,
         };
         SDL_CreateGPUShader(device, &desc).ok()?
+    };
+
+    // Create our vertex and index data
+    let vertex_data = [
+        Vertex::new([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]),
+        Vertex::new([0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0]),
+        Vertex::new([1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]),
+    ];
+    let index_data = [0, 1, 2];
+
+    // Create our vertex and index buffers
+    let (vertex_buffer, index_buffer) = unsafe {
+        let command_buffer = SDL_AcquireGPUCommandBuffer(device).ok()?;
+        let copy_pass = SDL_BeginGPUCopyPass(command_buffer).ok()?;
+
+        let vertex_buffer_size = (vertex_data.len() * std::mem::size_of::<Vertex>()) as u32;
+        let index_buffer_size = (index_data.len() * std::mem::size_of::<i32>()) as u32;
+
+        // Create the buffers
+        let vertex_buffer = {
+            let desc = SDL_GPUBufferCreateInfo {
+                usage: SDL_GPU_BUFFERUSAGE_VERTEX,
+                size: vertex_buffer_size,
+                props: 0,
+            };
+            SDL_CreateGPUBuffer(device, &desc).ok()?
+        };
+        let index_buffer = {
+            let desc = SDL_GPUBufferCreateInfo {
+                usage: SDL_GPU_BUFFERUSAGE_INDEX,
+                size: index_buffer_size,
+                props: 0,
+            };
+            SDL_CreateGPUBuffer(device, &desc).ok()?
+        };
+
+        let transfer_buffer = {
+            let desc = SDL_GPUTransferBufferCreateInfo {
+                usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+                size: vertex_buffer_size + index_buffer_size,
+                props: 0,
+            };
+            SDL_CreateGPUTransferBuffer(device, &desc).ok()?
+        };
+
+        // Populate our transfer buffer
+        {
+            let dest_ptr = SDL_MapGPUTransferBuffer(device, transfer_buffer, false).ok()?;
+            let dest_slice = std::slice::from_raw_parts_mut(
+                dest_ptr as *mut u8,
+                (vertex_buffer_size + index_buffer_size) as usize,
+            );
+
+            let vertex_bytes = std::slice::from_raw_parts(
+                vertex_data.as_ptr() as *const u8,
+                vertex_buffer_size as usize,
+            );
+            let index_bytes = std::slice::from_raw_parts(
+                index_data.as_ptr() as *const u8,
+                index_buffer_size as usize,
+            );
+
+            dest_slice[0..vertex_bytes.len()].copy_from_slice(vertex_bytes);
+            dest_slice[vertex_bytes.len()..].copy_from_slice(index_bytes);
+
+            SDL_UnmapGPUTransferBuffer(device, transfer_buffer);
+        }
+
+        // Copy to our vertex and index buffers
+        {
+            let source = SDL_GPUTransferBufferLocation {
+                transfer_buffer: transfer_buffer,
+                offset: 0,
+            };
+            let dest = SDL_GPUBufferRegion {
+                buffer: vertex_buffer,
+                offset: 0,
+                size: vertex_buffer_size,
+            };
+            SDL_UploadToGPUBuffer(copy_pass, &source, &dest, false);
+        }
+
+        {
+            let source = SDL_GPUTransferBufferLocation {
+                transfer_buffer: transfer_buffer,
+                offset: vertex_buffer_size,
+            };
+            let dest = SDL_GPUBufferRegion {
+                buffer: index_buffer,
+                offset: 0,
+                size: index_buffer_size,
+            };
+            SDL_UploadToGPUBuffer(copy_pass, &source, &dest, false);
+        }
+
+        // Execute and wait for the copies
+        SDL_EndGPUCopyPass(copy_pass);
+        let fence = SDL_SubmitGPUCommandBufferAndAcquireFence(command_buffer).ok()?;
+
+        SDL_WaitForGPUFences(device, true, [fence].as_ptr(), 1).ok()?;
+        SDL_ReleaseGPUFence(device, fence);
+        SDL_ReleaseGPUTransferBuffer(device, transfer_buffer);
+
+        (vertex_buffer, index_buffer)
     };
 
     // Create our pipeline
@@ -227,6 +345,12 @@ fn main() -> SdlResult<()> {
 
     // TODO: RAII-like wrapers
     unsafe {
+        SDL_ReleaseGPUShader(device, vertex_shader);
+        SDL_ReleaseGPUShader(device, fragment_shader);
+        SDL_ReleaseGPUBuffer(device, vertex_buffer);
+        SDL_ReleaseGPUBuffer(device, index_buffer);
+        SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        SDL_ReleaseWindowFromGPUDevice(device, window);
         SDL_DestroyGPUDevice(device);
         SDL_DestroyWindow(window);
         SDL_Quit();

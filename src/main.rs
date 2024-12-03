@@ -9,18 +9,18 @@ use sdl3_sys::{
         SDL_BeginGPURenderPass, SDL_BindGPUGraphicsPipeline, SDL_BindGPUIndexBuffer,
         SDL_BindGPUVertexBuffers, SDL_ClaimWindowForGPUDevice, SDL_CreateGPUBuffer,
         SDL_CreateGPUDevice, SDL_CreateGPUGraphicsPipeline, SDL_CreateGPUShader,
-        SDL_CreateGPUTransferBuffer, SDL_DestroyGPUDevice, SDL_DrawGPUPrimitives,
-        SDL_EndGPUCopyPass, SDL_EndGPURenderPass, SDL_GPUBufferBinding, SDL_GPUBufferCreateInfo,
-        SDL_GPUBufferRegion, SDL_GPUColorTargetBlendState, SDL_GPUColorTargetDescription,
-        SDL_GPUColorTargetInfo, SDL_GPUDepthStencilState, SDL_GPUGraphicsPipelineCreateInfo,
-        SDL_GPUGraphicsPipelineTargetInfo, SDL_GPUMultisampleState, SDL_GPURasterizerState,
-        SDL_GPUSampleCount, SDL_GPUShaderCreateInfo, SDL_GPUStencilOpState,
-        SDL_GPUTransferBufferCreateInfo, SDL_GPUTransferBufferLocation, SDL_GPUVertexAttribute,
-        SDL_GPUVertexBufferDescription, SDL_GPUVertexInputState, SDL_GPUViewport,
-        SDL_GetGPUDeviceDriver, SDL_MapGPUTransferBuffer, SDL_ReleaseGPUBuffer,
-        SDL_ReleaseGPUFence, SDL_ReleaseGPUGraphicsPipeline, SDL_ReleaseGPUShader,
-        SDL_ReleaseGPUTransferBuffer, SDL_ReleaseWindowFromGPUDevice, SDL_SetGPUViewport,
-        SDL_SubmitGPUCommandBufferAndAcquireFence, SDL_UnmapGPUTransferBuffer,
+        SDL_CreateGPUTransferBuffer, SDL_DestroyGPUDevice, SDL_DrawGPUIndexedPrimitives,
+        SDL_DrawGPUPrimitives, SDL_EndGPUCopyPass, SDL_EndGPURenderPass, SDL_GPUBufferBinding,
+        SDL_GPUBufferCreateInfo, SDL_GPUBufferRegion, SDL_GPUColorTargetBlendState,
+        SDL_GPUColorTargetDescription, SDL_GPUColorTargetInfo, SDL_GPUDepthStencilState,
+        SDL_GPUGraphicsPipelineCreateInfo, SDL_GPUGraphicsPipelineTargetInfo,
+        SDL_GPUMultisampleState, SDL_GPURasterizerState, SDL_GPUSampleCount,
+        SDL_GPUShaderCreateInfo, SDL_GPUStencilOpState, SDL_GPUTransferBufferCreateInfo,
+        SDL_GPUTransferBufferLocation, SDL_GPUVertexAttribute, SDL_GPUVertexBufferDescription,
+        SDL_GPUVertexInputState, SDL_GPUViewport, SDL_GetGPUDeviceDriver, SDL_MapGPUTransferBuffer,
+        SDL_ReleaseGPUBuffer, SDL_ReleaseGPUFence, SDL_ReleaseGPUGraphicsPipeline,
+        SDL_ReleaseGPUShader, SDL_ReleaseGPUTransferBuffer, SDL_ReleaseWindowFromGPUDevice,
+        SDL_SetGPUViewport, SDL_SubmitGPUCommandBufferAndAcquireFence, SDL_UnmapGPUTransferBuffer,
         SDL_UploadToGPUBuffer, SDL_WaitForGPUFences, SDL_GPU_BLENDFACTOR_ONE,
         SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_GPU_BLENDFACTOR_SRC_ALPHA,
         SDL_GPU_BLENDOP_ADD, SDL_GPU_BUFFERUSAGE_INDEX, SDL_GPU_BUFFERUSAGE_VERTEX,
@@ -415,7 +415,7 @@ fn main() -> SdlResult<()> {
             };
             SDL_BindGPUIndexBuffer(render_pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-            SDL_DrawGPUPrimitives(render_pass, vertex_data.len() as u32, 1, 0, 0);
+            SDL_DrawGPUIndexedPrimitives(render_pass, index_data.len() as u32, 1, 0, 0, 0);
 
             // Submit
             SDL_EndGPURenderPass(render_pass);

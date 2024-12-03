@@ -26,26 +26,35 @@ impl SdlError {
                 }
             }
             let len = error_msg_end.offset_from(error_msg_start);
-            let error_msg_slice = std::slice::from_raw_parts(error_msg_start as *const u8, len as usize);
+            let error_msg_slice =
+                std::slice::from_raw_parts(error_msg_start as *const u8, len as usize);
             match std::str::from_utf8(error_msg_slice) {
                 Ok(msg) => format!("SDL Error: {}", msg.to_owned()),
                 Err(error) => format!("Utf8Error: {}", error),
             }
         };
-        Self {
-            message,
+        Self { message }
+    }
+}
+
+pub trait SdlFunctionResult<T> {
+    fn ok(self) -> SdlResult<T>;
+}
+
+impl SdlFunctionResult<()> for std::primitive::bool {
+    fn ok(self) -> SdlResult<()> {
+        if self {
+            Ok(())
+        } else {
+            Err(SdlError::get_current())
         }
     }
 }
 
-pub trait SdlFunctionResult {
-    fn ok(self) -> SdlResult<()>;
-}
-
-impl SdlFunctionResult for std::primitive::bool {
-    fn ok(self) -> SdlResult<()> {
-        if self {
-            Ok(())
+impl<T> SdlFunctionResult<*mut T> for *mut T {
+    fn ok(self) -> SdlResult<*mut T> {
+        if !self.is_null() {
+            Ok(self)
         } else {
             Err(SdlError::get_current())
         }

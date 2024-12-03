@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sdl3-sys = { version = "0.1.3", features = ["build-from-source"] }
+sdl3-sys = { version = "0.1.3", features = [ "build-from-source" ] }
+
+[build-dependencies]
+naga = { version = "23.0.0", features = [ "wgsl-in", "spv-out" ] }

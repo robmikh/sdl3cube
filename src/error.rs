@@ -1,5 +1,7 @@
 use sdl3_sys::error::SDL_GetError;
 
+use crate::util::null_terminated_sdl_str;
+
 pub type SdlResult<T> = std::result::Result<T, SdlError>;
 
 #[derive(Debug)]
@@ -18,18 +20,8 @@ impl std::fmt::Display for SdlError {
 impl SdlError {
     fn get_current() -> Self {
         let message = unsafe {
-            let error_msg_start = SDL_GetError();
-            let mut error_msg_end = error_msg_start;
-            if error_msg_start != std::ptr::null() {
-                while *error_msg_end != 0 {
-                    error_msg_end = error_msg_end.add(1);
-                }
-            }
-            let len = error_msg_end.offset_from(error_msg_start);
-            let error_msg_slice =
-                std::slice::from_raw_parts(error_msg_start as *const u8, len as usize);
-            match std::str::from_utf8(error_msg_slice) {
-                Ok(msg) => format!("SDL Error: {}", msg.to_owned()),
+            match null_terminated_sdl_str(SDL_GetError()) {
+                Ok(msg) => format!("SDL Error: {}", msg.unwrap_or("[None]")),
                 Err(error) => format!("Utf8Error: {}", error),
             }
         };
@@ -53,6 +45,16 @@ impl SdlFunctionResult<()> for std::primitive::bool {
 
 impl<T> SdlFunctionResult<*mut T> for *mut T {
     fn ok(self) -> SdlResult<*mut T> {
+        if !self.is_null() {
+            Ok(self)
+        } else {
+            Err(SdlError::get_current())
+        }
+    }
+}
+
+impl<T> SdlFunctionResult<*const T> for *const T {
+    fn ok(self) -> SdlResult<*const T> {
         if !self.is_null() {
             Ok(self)
         } else {

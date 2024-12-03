@@ -1,7 +1,11 @@
+mod cube;
 mod error;
 mod sdl;
 mod util;
 
+use std::time::Instant;
+
+use cube::create_cube;
 use error::{SdlFunctionResult, SdlResult};
 use glam::{Mat4, Vec3};
 use sdl::{
@@ -50,13 +54,13 @@ const VERTEX_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/ver
 const FRAGMENT_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/fragment.spv");
 
 #[repr(C)]
-struct Vertex {
+pub struct Vertex {
     pos: [f32; 4],
     color: [f32; 4],
 }
 
 impl Vertex {
-    fn new(pos: [f32; 4], color: [f32; 4]) -> Self {
+    pub fn new(pos: [f32; 4], color: [f32; 4]) -> Self {
         Self { pos, color }
     }
 }
@@ -129,12 +133,14 @@ fn run() -> SdlResult<()> {
     };
 
     // Create our vertex and index data
-    let vertex_data = [
-        Vertex::new([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]),
-        Vertex::new([10.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]),
-        Vertex::new([0.0, 10.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0]),
-    ];
-    let index_data = [0, 1, 2];
+    let (vertex_data, index_data) = {
+        let mut vertex_data = Vec::new();
+        let mut index_data = Vec::new();
+
+        let _ = create_cube(Vec3::ZERO, 10, &mut index_data, &mut vertex_data);
+
+        (vertex_data, index_data)
+    };
     let vertex_buffer_size = (vertex_data.len() * std::mem::size_of::<Vertex>()) as u32;
     let index_buffer_size = (index_data.len() * std::mem::size_of::<i32>()) as u32;
 
@@ -170,8 +176,9 @@ fn run() -> SdlResult<()> {
         let view = Mat4::look_to_rh(Vec3::new(0.0, 50.0, 50.0), facing, Vec3::new(0.0, 1.0, 0.0));
         projection * view
     };
-    //let world_transform = Mat4::IDENTITY;
-    let local_transform = Mat4::IDENTITY;
+    let mut local_transform;
+    let mut current_rotation = 0.0;
+    let rotation_speed = 32.0 / 1000.0;
     let transform_buffer_size = std::mem::size_of::<[f32; 16]>() as u32;
 
     // Create the transfer buffer
@@ -369,6 +376,7 @@ fn run() -> SdlResult<()> {
     let mut event = SDL_Event {
         padding: [0u8; 128],
     };
+    let mut last_update = Instant::now();
     while !quit {
         while unsafe { SDL_PollEvent(&mut event) } {
             if unsafe { event.r#type } == SDL_EVENT_QUIT.0 {
@@ -376,6 +384,15 @@ fn run() -> SdlResult<()> {
                 break;
             }
         }
+
+        // Update
+        let current_update = Instant::now();
+        let elapsed = current_update - last_update;
+        last_update = current_update;
+
+        current_rotation =
+            (current_rotation + (rotation_speed * elapsed.as_millis() as f32)) % 360.0;
+        local_transform = Mat4::from_rotation_z(current_rotation.to_radians());
 
         // Render
         unsafe {

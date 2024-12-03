@@ -125,8 +125,8 @@ fn main() -> SdlResult<()> {
     // Create our vertex and index data
     let vertex_data = [
         Vertex::new([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]),
-        Vertex::new([0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0]),
         Vertex::new([1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]),
+        Vertex::new([0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0]),
     ];
     let index_data = [0, 1, 2];
 

@@ -1,4 +1,7 @@
 fn main() {
+    // Ensure folders
+    let _ = std::fs::create_dir_all("data/generated/shaders");
+
     // Compile shaders
     let input_path = "data/shaders/shader.wgsl";
     println!("cargo::rerun-if-changed={}", input_path);

@@ -3,6 +3,20 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 };
 
+struct Globals {
+    transform: mat4x4<f32>,
+};
+@group(1)
+@binding(0)
+var<uniform> r_globals: Globals;
+
+struct Locals {
+    transform: mat4x4<f32>,
+};
+@group(1)
+@binding(1)
+var<uniform> r_locals: Locals;
+
 @vertex
 fn vs_main(
     @location(0) position: vec4<f32>,
@@ -16,7 +30,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.color = color;
-    out.position = in_position;
+    out.position = r_globals.transform * r_locals.transform * in_position;
     return out;
 }
 

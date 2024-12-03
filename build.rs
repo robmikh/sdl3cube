@@ -1,6 +1,7 @@
 fn main() {
     // Compile shaders
     let input_path = "data/shaders/shader.wgsl";
+    println!("cargo::rerun-if-changed={}", input_path);
     compile_shader(
         input_path,
         "data/generated/shaders/vertex.spv",

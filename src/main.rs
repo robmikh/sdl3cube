@@ -3,6 +3,7 @@ mod sdl;
 mod util;
 
 use error::{SdlFunctionResult, SdlResult};
+use glam::{Mat4, Vec3};
 use sdl::{
     SdlGpuBuffer, SdlGpuDevice, SdlGpuGraphicsPipeline, SdlGpuShader, SdlGpuTransferBuffer,
     SdlWindow,
@@ -22,8 +23,8 @@ use sdl3_sys::{
         SDL_GPUSampleCount, SDL_GPUShaderCreateInfo, SDL_GPUStencilOpState,
         SDL_GPUTransferBufferCreateInfo, SDL_GPUTransferBufferLocation, SDL_GPUVertexAttribute,
         SDL_GPUVertexBufferDescription, SDL_GPUVertexInputState, SDL_GPUViewport,
-        SDL_GetGPUDeviceDriver, SDL_MapGPUTransferBuffer, SDL_ReleaseGPUFence,
-        SDL_ReleaseWindowFromGPUDevice, SDL_SetGPUViewport,
+        SDL_GetGPUDeviceDriver, SDL_MapGPUTransferBuffer, SDL_PushGPUVertexUniformData,
+        SDL_ReleaseGPUFence, SDL_ReleaseWindowFromGPUDevice, SDL_SetGPUViewport,
         SDL_SubmitGPUCommandBufferAndAcquireFence, SDL_UnmapGPUTransferBuffer,
         SDL_UploadToGPUBuffer, SDL_WaitForGPUFences, SDL_GPU_BLENDFACTOR_ONE,
         SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_GPU_BLENDFACTOR_SRC_ALPHA,
@@ -104,7 +105,7 @@ fn run() -> SdlResult<()> {
             num_samplers: 0,
             num_storage_textures: 0,
             num_storage_buffers: 0,
-            num_uniform_buffers: 0,
+            num_uniform_buffers: 2,
             props: 0,
         };
         let shader = SDL_CreateGPUShader(device.0, &desc).ok()?;
@@ -130,56 +131,78 @@ fn run() -> SdlResult<()> {
     // Create our vertex and index data
     let vertex_data = [
         Vertex::new([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]),
-        Vertex::new([1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]),
-        Vertex::new([0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0]),
+        Vertex::new([10.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]),
+        Vertex::new([0.0, 10.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0]),
     ];
     let index_data = [0, 1, 2];
+    let vertex_buffer_size = (vertex_data.len() * std::mem::size_of::<Vertex>()) as u32;
+    let index_buffer_size = (index_data.len() * std::mem::size_of::<i32>()) as u32;
 
     // Create our vertex and index buffers
-    let (vertex_buffer, index_buffer) = unsafe {
+    let vertex_buffer = unsafe {
+        let desc = SDL_GPUBufferCreateInfo {
+            usage: SDL_GPU_BUFFERUSAGE_VERTEX,
+            size: vertex_buffer_size,
+            props: 0,
+        };
+        let buffer = SDL_CreateGPUBuffer(device.0, &desc).ok()?;
+        SdlGpuBuffer::new(buffer, device.0)
+    };
+    let index_buffer = unsafe {
+        let desc = SDL_GPUBufferCreateInfo {
+            usage: SDL_GPU_BUFFERUSAGE_INDEX,
+            size: index_buffer_size,
+            props: 0,
+        };
+        let buffer = SDL_CreateGPUBuffer(device.0, &desc).ok()?;
+        SdlGpuBuffer::new(buffer, device.0)
+    };
+
+    // Create our transform data
+    let world_transform = {
+        let projection = Mat4::perspective_rh(
+            45.0_f32.to_radians(),
+            WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32,
+            1.0,
+            10000.0,
+        );
+        let facing = Vec3::new(0.0, -1.0, -1.0).normalize();
+        let view = Mat4::look_to_rh(Vec3::new(0.0, 50.0, 50.0), facing, Vec3::new(0.0, 1.0, 0.0));
+        projection * view
+    };
+    //let world_transform = Mat4::IDENTITY;
+    let local_transform = Mat4::IDENTITY;
+    let transform_buffer_size = std::mem::size_of::<[f32; 16]>() as u32;
+
+    // Create the transfer buffer
+    let transfer_buffer_size = vertex_buffer_size + index_buffer_size;
+    let transfer_buffer = unsafe {
+        let desc = SDL_GPUTransferBufferCreateInfo {
+            usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+            size: transfer_buffer_size,
+            props: 0,
+        };
+        let buffer = SDL_CreateGPUTransferBuffer(device.0, &desc).ok()?;
+        SdlGpuTransferBuffer::new(buffer, device.0)
+    };
+
+    // Update our buffers
+    unsafe {
         let command_buffer = SDL_AcquireGPUCommandBuffer(device.0).ok()?;
         let copy_pass = SDL_BeginGPUCopyPass(command_buffer).ok()?;
 
-        let vertex_buffer_size = (vertex_data.len() * std::mem::size_of::<Vertex>()) as u32;
-        let index_buffer_size = (index_data.len() * std::mem::size_of::<i32>()) as u32;
+        // Compute transfer buffer offsets
+        let vertex_start = 0;
+        let vertex_end = vertex_start + vertex_buffer_size as usize;
 
-        // Create the buffers
-        let vertex_buffer = {
-            let desc = SDL_GPUBufferCreateInfo {
-                usage: SDL_GPU_BUFFERUSAGE_VERTEX,
-                size: vertex_buffer_size,
-                props: 0,
-            };
-            let buffer = SDL_CreateGPUBuffer(device.0, &desc).ok()?;
-            SdlGpuBuffer::new(buffer, device.0)
-        };
-        let index_buffer = {
-            let desc = SDL_GPUBufferCreateInfo {
-                usage: SDL_GPU_BUFFERUSAGE_INDEX,
-                size: index_buffer_size,
-                props: 0,
-            };
-            let buffer = SDL_CreateGPUBuffer(device.0, &desc).ok()?;
-            SdlGpuBuffer::new(buffer, device.0)
-        };
-
-        let transfer_buffer = {
-            let desc = SDL_GPUTransferBufferCreateInfo {
-                usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-                size: vertex_buffer_size + index_buffer_size,
-                props: 0,
-            };
-            let buffer = SDL_CreateGPUTransferBuffer(device.0, &desc).ok()?;
-            SdlGpuTransferBuffer::new(buffer, device.0)
-        };
+        let index_start = vertex_end;
+        let index_end = index_start + index_buffer_size as usize;
 
         // Populate our transfer buffer
         {
             let dest_ptr = SDL_MapGPUTransferBuffer(device.0, transfer_buffer.get(), false).ok()?;
-            let dest_slice = std::slice::from_raw_parts_mut(
-                dest_ptr as *mut u8,
-                (vertex_buffer_size + index_buffer_size) as usize,
-            );
+            let dest_slice =
+                std::slice::from_raw_parts_mut(dest_ptr as *mut u8, transfer_buffer_size as usize);
 
             let vertex_bytes = std::slice::from_raw_parts(
                 vertex_data.as_ptr() as *const u8,
@@ -190,17 +213,17 @@ fn run() -> SdlResult<()> {
                 index_buffer_size as usize,
             );
 
-            dest_slice[0..vertex_bytes.len()].copy_from_slice(vertex_bytes);
-            dest_slice[vertex_bytes.len()..].copy_from_slice(index_bytes);
+            dest_slice[vertex_start..vertex_end].copy_from_slice(vertex_bytes);
+            dest_slice[index_start..index_end].copy_from_slice(index_bytes);
 
             SDL_UnmapGPUTransferBuffer(device.0, transfer_buffer.get());
         }
 
-        // Copy to our vertex and index buffers
+        // Copy to our buffers
         {
             let source = SDL_GPUTransferBufferLocation {
                 transfer_buffer: transfer_buffer.get(),
-                offset: 0,
+                offset: vertex_start as u32,
             };
             let dest = SDL_GPUBufferRegion {
                 buffer: vertex_buffer.get(),
@@ -213,7 +236,7 @@ fn run() -> SdlResult<()> {
         {
             let source = SDL_GPUTransferBufferLocation {
                 transfer_buffer: transfer_buffer.get(),
-                offset: vertex_buffer_size,
+                offset: index_start as u32,
             };
             let dest = SDL_GPUBufferRegion {
                 buffer: index_buffer.get(),
@@ -229,9 +252,7 @@ fn run() -> SdlResult<()> {
 
         SDL_WaitForGPUFences(device.0, true, [fence].as_ptr(), 1).ok()?;
         SDL_ReleaseGPUFence(device.0, fence);
-
-        (vertex_buffer, index_buffer)
-    };
+    }
 
     // Create our pipeline
     let pipeline = unsafe {
@@ -422,6 +443,18 @@ fn run() -> SdlResult<()> {
                 offset: 0,
             };
             SDL_BindGPUIndexBuffer(render_pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            SDL_PushGPUVertexUniformData(
+                command_buffer,
+                0,
+                &world_transform as *const _ as *const _,
+                transform_buffer_size,
+            );
+            SDL_PushGPUVertexUniformData(
+                command_buffer,
+                1,
+                &local_transform as *const _ as *const _,
+                transform_buffer_size,
+            );
 
             SDL_DrawGPUIndexedPrimitives(render_pass, index_data.len() as u32, 1, 0, 0, 0);
 

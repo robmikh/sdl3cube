@@ -5,29 +5,35 @@ use error::{SdlFunctionResult, SdlResult};
 use sdl3_sys::{
     events::{SDL_Event, SDL_PollEvent, SDL_EVENT_QUIT},
     gpu::{
-        SDL_AcquireGPUCommandBuffer, SDL_BeginGPUCopyPass, SDL_ClaimWindowForGPUDevice,
-        SDL_CreateGPUBuffer, SDL_CreateGPUDevice, SDL_CreateGPUGraphicsPipeline,
-        SDL_CreateGPUShader, SDL_CreateGPUTransferBuffer, SDL_DestroyGPUDevice, SDL_EndGPUCopyPass,
-        SDL_GPUBufferCreateInfo, SDL_GPUBufferRegion, SDL_GPUColorTargetBlendState,
-        SDL_GPUColorTargetDescription, SDL_GPUDepthStencilState, SDL_GPUGraphicsPipelineCreateInfo,
+        SDL_AcquireGPUCommandBuffer, SDL_AcquireGPUSwapchainTexture, SDL_BeginGPUCopyPass,
+        SDL_BeginGPURenderPass, SDL_BindGPUGraphicsPipeline, SDL_BindGPUIndexBuffer,
+        SDL_BindGPUVertexBuffers, SDL_ClaimWindowForGPUDevice, SDL_CreateGPUBuffer,
+        SDL_CreateGPUDevice, SDL_CreateGPUGraphicsPipeline, SDL_CreateGPUShader,
+        SDL_CreateGPUTransferBuffer, SDL_DestroyGPUDevice, SDL_DrawGPUPrimitives,
+        SDL_EndGPUCopyPass, SDL_EndGPURenderPass, SDL_GPUBufferBinding, SDL_GPUBufferCreateInfo,
+        SDL_GPUBufferRegion, SDL_GPUColorTargetBlendState, SDL_GPUColorTargetDescription,
+        SDL_GPUColorTargetInfo, SDL_GPUDepthStencilState, SDL_GPUGraphicsPipelineCreateInfo,
         SDL_GPUGraphicsPipelineTargetInfo, SDL_GPUMultisampleState, SDL_GPURasterizerState,
         SDL_GPUSampleCount, SDL_GPUShaderCreateInfo, SDL_GPUStencilOpState,
         SDL_GPUTransferBufferCreateInfo, SDL_GPUTransferBufferLocation, SDL_GPUVertexAttribute,
-        SDL_GPUVertexBufferDescription, SDL_GPUVertexInputState, SDL_GetGPUDeviceDriver,
-        SDL_MapGPUTransferBuffer, SDL_ReleaseGPUBuffer, SDL_ReleaseGPUFence,
-        SDL_ReleaseGPUGraphicsPipeline, SDL_ReleaseGPUShader, SDL_ReleaseGPUTransferBuffer,
-        SDL_ReleaseWindowFromGPUDevice, SDL_SubmitGPUCommandBufferAndAcquireFence,
-        SDL_UnmapGPUTransferBuffer, SDL_UploadToGPUBuffer, SDL_WaitForGPUFences,
-        SDL_GPU_BLENDFACTOR_ONE, SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-        SDL_GPU_BLENDFACTOR_SRC_ALPHA, SDL_GPU_BLENDOP_ADD, SDL_GPU_BUFFERUSAGE_INDEX,
-        SDL_GPU_BUFFERUSAGE_VERTEX, SDL_GPU_COMPAREOP_INVALID, SDL_GPU_CULLMODE_BACK,
-        SDL_GPU_FILLMODE_FILL, SDL_GPU_FRONTFACE_CLOCKWISE, SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
-        SDL_GPU_SHADERFORMAT_SPIRV, SDL_GPU_SHADERSTAGE_FRAGMENT, SDL_GPU_SHADERSTAGE_VERTEX,
-        SDL_GPU_STENCILOP_INVALID, SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM,
-        SDL_GPU_TEXTUREFORMAT_INVALID, SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, SDL_GPU_VERTEXINPUTRATE_VERTEX,
+        SDL_GPUVertexBufferDescription, SDL_GPUVertexInputState, SDL_GPUViewport,
+        SDL_GetGPUDeviceDriver, SDL_MapGPUTransferBuffer, SDL_ReleaseGPUBuffer,
+        SDL_ReleaseGPUFence, SDL_ReleaseGPUGraphicsPipeline, SDL_ReleaseGPUShader,
+        SDL_ReleaseGPUTransferBuffer, SDL_ReleaseWindowFromGPUDevice, SDL_SetGPUViewport,
+        SDL_SubmitGPUCommandBufferAndAcquireFence, SDL_UnmapGPUTransferBuffer,
+        SDL_UploadToGPUBuffer, SDL_WaitForGPUFences, SDL_GPU_BLENDFACTOR_ONE,
+        SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+        SDL_GPU_BLENDOP_ADD, SDL_GPU_BUFFERUSAGE_INDEX, SDL_GPU_BUFFERUSAGE_VERTEX,
+        SDL_GPU_COMPAREOP_INVALID, SDL_GPU_CULLMODE_BACK, SDL_GPU_FILLMODE_FILL,
+        SDL_GPU_FRONTFACE_CLOCKWISE, SDL_GPU_INDEXELEMENTSIZE_32BIT, SDL_GPU_LOADOP_CLEAR,
+        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST, SDL_GPU_SHADERFORMAT_SPIRV,
+        SDL_GPU_SHADERSTAGE_FRAGMENT, SDL_GPU_SHADERSTAGE_VERTEX, SDL_GPU_STENCILOP_INVALID,
+        SDL_GPU_STOREOP_STORE, SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREFORMAT_INVALID,
+        SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+        SDL_GPU_VERTEXINPUTRATE_VERTEX,
     },
     init::{SDL_Init, SDL_Quit, SDL_INIT_VIDEO},
+    pixels::SDL_FColor,
     video::{SDL_CreateWindow, SDL_DestroyWindow},
 };
 use util::null_terminated_sdl_str;
@@ -340,6 +346,82 @@ fn main() -> SdlResult<()> {
                 quit = true;
                 break;
             }
+        }
+
+        // Render
+        unsafe {
+            let command_buffer = SDL_AcquireGPUCommandBuffer(device).ok()?;
+
+            // Acquire the next swapchain texture
+            let mut render_target = std::ptr::null_mut();
+            let mut render_target_width = 0;
+            let mut render_target_height = 0;
+            SDL_AcquireGPUSwapchainTexture(
+                command_buffer,
+                window,
+                &mut render_target,
+                &mut render_target_width,
+                &mut render_target_height,
+            )
+            .ok()?;
+
+            // Draw
+            let target_info = SDL_GPUColorTargetInfo {
+                texture: render_target,
+                mip_level: 0,
+                layer_or_depth_plane: 0,
+                clear_color: SDL_FColor {
+                    r: 0.1,
+                    g: 0.2,
+                    b: 0.3,
+                    a: 1.0,
+                },
+                load_op: SDL_GPU_LOADOP_CLEAR,
+                store_op: SDL_GPU_STOREOP_STORE,
+                resolve_texture: std::ptr::null_mut(),
+                resolve_mip_level: 0,
+                resolve_layer: 0,
+                cycle: false,
+                cycle_resolve_texture: false,
+                padding1: 0,
+                padding2: 0,
+            };
+            let render_pass =
+                SDL_BeginGPURenderPass(command_buffer, &target_info, 1, std::ptr::null()).ok()?;
+
+            SDL_BindGPUGraphicsPipeline(render_pass, pipeline);
+            let viewport = SDL_GPUViewport {
+                x: 0.0,
+                y: 0.0,
+                w: render_target_width as f32,
+                h: render_target_height as f32,
+                min_depth: 0.0,
+                max_depth: 0.0,
+            };
+            SDL_SetGPUViewport(render_pass, &viewport);
+            let vertex_bindings = [SDL_GPUBufferBinding {
+                buffer: vertex_buffer,
+                offset: 0,
+            }];
+            SDL_BindGPUVertexBuffers(
+                render_pass,
+                0,
+                vertex_bindings.as_ptr(),
+                vertex_bindings.len() as u32,
+            );
+            let index_binding = SDL_GPUBufferBinding {
+                buffer: index_buffer,
+                offset: 0,
+            };
+            SDL_BindGPUIndexBuffer(render_pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+
+            SDL_DrawGPUPrimitives(render_pass, vertex_data.len() as u32, 1, 0, 0);
+
+            // Submit
+            SDL_EndGPURenderPass(render_pass);
+            let fence = SDL_SubmitGPUCommandBufferAndAcquireFence(command_buffer).ok()?;
+            SDL_WaitForGPUFences(device, true, [fence].as_ptr(), 1).ok()?;
+            SDL_ReleaseGPUFence(device, fence);
         }
     }
 

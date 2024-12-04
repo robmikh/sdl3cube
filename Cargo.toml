@@ -9,3 +9,8 @@ glam = "0.29.2"
 
 [build-dependencies]
 naga = { version = "23.0.0", features = [ "wgsl-in", "spv-out" ] }
+
+[features]
+vulkan = []
+dx12 = []
+metal = []

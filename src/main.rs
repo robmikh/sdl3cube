@@ -13,7 +13,7 @@ use sdl::{
     SdlWindow,
 };
 use sdl3_sys::{
-    events::{SDL_Event, SDL_PollEvent, SDL_EVENT_QUIT},
+    events::{SDL_Event, SDL_EventType, SDL_PollEvent, SDL_EVENT_KEY_UP, SDL_EVENT_QUIT},
     gpu::{
         SDL_AcquireGPUCommandBuffer, SDL_AcquireGPUSwapchainTexture, SDL_BeginGPUCopyPass,
         SDL_BeginGPURenderPass, SDL_BindGPUGraphicsPipeline, SDL_BindGPUIndexBuffer,
@@ -34,24 +34,59 @@ use sdl3_sys::{
         SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_GPU_BLENDFACTOR_SRC_ALPHA,
         SDL_GPU_BLENDOP_ADD, SDL_GPU_BUFFERUSAGE_INDEX, SDL_GPU_BUFFERUSAGE_VERTEX,
         SDL_GPU_COMPAREOP_INVALID, SDL_GPU_CULLMODE_BACK, SDL_GPU_FILLMODE_FILL,
-        SDL_GPU_FRONTFACE_CLOCKWISE, SDL_GPU_INDEXELEMENTSIZE_32BIT, SDL_GPU_LOADOP_CLEAR,
-        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST, SDL_GPU_SHADERFORMAT_SPIRV,
-        SDL_GPU_SHADERSTAGE_FRAGMENT, SDL_GPU_SHADERSTAGE_VERTEX, SDL_GPU_STENCILOP_INVALID,
-        SDL_GPU_STOREOP_STORE, SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREFORMAT_INVALID,
+        SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE, SDL_GPU_INDEXELEMENTSIZE_32BIT, SDL_GPU_LOADOP_CLEAR,
+        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        SDL_GPU_SHADERSTAGE_VERTEX, SDL_GPU_STENCILOP_INVALID, SDL_GPU_STOREOP_STORE,
+        SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREFORMAT_INVALID,
         SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
         SDL_GPU_VERTEXINPUTRATE_VERTEX,
     },
     init::{SDL_Init, SDL_Quit, SDL_INIT_VIDEO},
+    keycode::{SDLK_A, SDLK_D, SDLK_E, SDLK_Q, SDLK_S, SDLK_W},
     pixels::SDL_FColor,
-    video::SDL_CreateWindow,
+    video::{SDL_CreateWindow, SDL_WINDOW_RESIZABLE},
 };
 use util::null_terminated_sdl_str;
 
 const WINDOW_WIDTH: i32 = 640;
 const WINDOW_HEIGHT: i32 = 480;
 
-const VERTEX_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/vertex.spv");
-const FRAGMENT_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/fragment.spv");
+// Default to Vulkan
+#[cfg(all(not(feature = "vulkan"), not(feature = "dx12"), not(feature = "metal")))]
+mod shaders {
+    pub const VERTEX_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/vertex.spv");
+    pub const FRAGMENT_SHADER_BYTES: &[u8] =
+        include_bytes!("../data/generated/shaders/fragment.spv");
+    pub const SHADER_TYPE: sdl3_sys::gpu::SDL_GPUShaderFormat =
+        sdl3_sys::gpu::SDL_GPU_SHADERFORMAT_SPIRV;
+}
+
+#[cfg(feature = "dx12")]
+mod shaders {
+    pub const VERTEX_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/vertex.dxil");
+    pub const FRAGMENT_SHADER_BYTES: &[u8] =
+        include_bytes!("../data/generated/shaders/fragment.dxil");
+    pub const SHADER_TYPE: sdl3_sys::gpu::SDL_GPUShaderFormat =
+        sdl3_sys::gpu::SDL_GPU_SHADERFORMAT_DXIL;
+}
+
+#[cfg(feature = "vulkan")]
+mod shaders {
+    pub const VERTEX_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/vertex.spv");
+    pub const FRAGMENT_SHADER_BYTES: &[u8] =
+        include_bytes!("../data/generated/shaders/fragment.spv");
+    pub const SHADER_TYPE: sdl3_sys::gpu::SDL_GPUShaderFormat =
+        sdl3_sys::gpu::SDL_GPU_SHADERFORMAT_SPIRV;
+}
+
+#[cfg(feature = "metal")]
+mod shaders {
+    pub const VERTEX_SHADER_BYTES: &[u8] = include_bytes!("../data/generated/shaders/vertex.msl");
+    pub const FRAGMENT_SHADER_BYTES: &[u8] =
+        include_bytes!("../data/generated/shaders/fragment.msl");
+    pub const SHADER_TYPE: sdl3_sys::gpu::SDL_GPUShaderFormat =
+        sdl3_sys::gpu::SDL_GPU_SHADERFORMAT_MSL;
+}
 
 #[repr(C)]
 pub struct Vertex {
@@ -72,7 +107,7 @@ fn run() -> SdlResult<()> {
             "sdl3cube\0".as_ptr() as *const _,
             WINDOW_WIDTH,
             WINDOW_HEIGHT,
-            0,
+            SDL_WINDOW_RESIZABLE,
         )
         .ok()?
         .into()
@@ -80,7 +115,7 @@ fn run() -> SdlResult<()> {
 
     // Init GPU
     let device: SdlGpuDevice = unsafe {
-        SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, std::ptr::null())
+        SDL_CreateGPUDevice(shaders::SHADER_TYPE, true, std::ptr::null())
             .ok()?
             .into()
     };
@@ -101,10 +136,10 @@ fn run() -> SdlResult<()> {
     // Load our shaders
     let vertex_shader = unsafe {
         let desc = SDL_GPUShaderCreateInfo {
-            code_size: VERTEX_SHADER_BYTES.len(),
-            code: VERTEX_SHADER_BYTES.as_ptr(),
+            code_size: shaders::VERTEX_SHADER_BYTES.len(),
+            code: shaders::VERTEX_SHADER_BYTES.as_ptr(),
             entrypoint: "vs_main\0".as_ptr() as *const _,
-            format: SDL_GPU_SHADERFORMAT_SPIRV,
+            format: shaders::SHADER_TYPE,
             stage: SDL_GPU_SHADERSTAGE_VERTEX,
             num_samplers: 0,
             num_storage_textures: 0,
@@ -117,10 +152,10 @@ fn run() -> SdlResult<()> {
     };
     let fragment_shader = unsafe {
         let desc = SDL_GPUShaderCreateInfo {
-            code_size: FRAGMENT_SHADER_BYTES.len(),
-            code: FRAGMENT_SHADER_BYTES.as_ptr(),
+            code_size: shaders::FRAGMENT_SHADER_BYTES.len(),
+            code: shaders::FRAGMENT_SHADER_BYTES.as_ptr(),
             entrypoint: "fs_main\0".as_ptr() as *const _,
-            format: SDL_GPU_SHADERFORMAT_SPIRV,
+            format: shaders::SHADER_TYPE,
             stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
             num_samplers: 0,
             num_storage_textures: 0,
@@ -165,19 +200,10 @@ fn run() -> SdlResult<()> {
     };
 
     // Create our transform data
-    let world_transform = {
-        let projection = Mat4::perspective_rh(
-            45.0_f32.to_radians(),
-            WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32,
-            1.0,
-            10000.0,
-        );
-        let facing = Vec3::new(0.0, -1.0, -1.0).normalize();
-        let view = Mat4::look_to_rh(Vec3::new(0.0, 50.0, 50.0), facing, Vec3::new(0.0, 1.0, 0.0));
-        projection * view
-    };
+    let mut camera_position = Vec3::new(0.0, 50.0, -50.0);
+    let mut camera_target = Vec3::new(0.0, 0.0, 0.0);
     let mut local_transform;
-    let mut current_rotation = 0.0;
+    let mut current_rotation: f32 = 0.0;
     let rotation_speed = 32.0 / 1000.0;
     let transform_buffer_size = std::mem::size_of::<[f32; 16]>() as u32;
 
@@ -316,7 +342,7 @@ fn run() -> SdlResult<()> {
             rasterizer_state: SDL_GPURasterizerState {
                 fill_mode: SDL_GPU_FILLMODE_FILL,
                 cull_mode: SDL_GPU_CULLMODE_BACK,
-                front_face: SDL_GPU_FRONTFACE_CLOCKWISE,
+                front_face: SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
                 depth_bias_constant_factor: 0.0,
                 depth_bias_clamp: 0.0,
                 depth_bias_slope_factor: 0.0,
@@ -379,9 +405,41 @@ fn run() -> SdlResult<()> {
     let mut last_update = Instant::now();
     while !quit {
         while unsafe { SDL_PollEvent(&mut event) } {
-            if unsafe { event.r#type } == SDL_EVENT_QUIT.0 {
-                quit = true;
-                break;
+            match unsafe { SDL_EventType(event.r#type) } {
+                SDL_EVENT_QUIT => {
+                    quit = true;
+                    break;
+                }
+                SDL_EVENT_KEY_UP => match unsafe { event.key.key } {
+                    SDLK_Q => {
+                        camera_position += Vec3::new(5.0, 0.0, 0.0);
+                        camera_target += Vec3::new(5.0, 0.0, 0.0);
+                    }
+                    SDLK_A => {
+                        camera_position -= Vec3::new(5.0, 0.0, 0.0);
+                        camera_target -= Vec3::new(5.0, 0.0, 0.0);
+                    }
+
+                    SDLK_W => {
+                        camera_position += Vec3::new(0.0, 5.0, 0.0);
+                        camera_target += Vec3::new(0.0, 5.0, 0.0);
+                    }
+                    SDLK_S => {
+                        camera_position -= Vec3::new(0.0, 5.0, 0.0);
+                        camera_target -= Vec3::new(0.0, 5.0, 0.0);
+                    }
+
+                    SDLK_E => {
+                        camera_position += Vec3::new(0.0, 0.0, 5.0);
+                        camera_target += Vec3::new(0.0, 0.0, 5.0);
+                    }
+                    SDLK_D => {
+                        camera_position -= Vec3::new(0.0, 0.0, 5.0);
+                        camera_target -= Vec3::new(0.0, 0.0, 5.0);
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
         }
 
@@ -392,7 +450,7 @@ fn run() -> SdlResult<()> {
 
         current_rotation =
             (current_rotation + (rotation_speed * elapsed.as_millis() as f32)) % 360.0;
-        local_transform = Mat4::from_rotation_z(current_rotation.to_radians());
+        local_transform = Mat4::from_rotation_y(current_rotation.to_radians());
 
         // Render
         unsafe {
@@ -460,6 +518,12 @@ fn run() -> SdlResult<()> {
                 offset: 0,
             };
             SDL_BindGPUIndexBuffer(render_pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            let world_transform = compute_world_transform(
+                camera_position,
+                camera_target,
+                render_target_width,
+                render_target_height,
+            );
             SDL_PushGPUVertexUniformData(
                 command_buffer,
                 0,
@@ -503,4 +567,27 @@ fn main() -> SdlResult<()> {
     }
 
     Ok(())
+}
+
+fn compute_world_transform(
+    camera_position: Vec3,
+    camera_target: Vec3,
+    width: u32,
+    height: u32,
+) -> Mat4 {
+    let projection = Mat4::perspective_rh(
+        45.0_f32.to_radians(),
+        width as f32 / height as f32,
+        1.0,
+        10000.0,
+    );
+    let facing = (camera_target - camera_position).normalize();
+    let view = Mat4::look_to_rh(camera_position, facing, Vec3::new(0.0, -1.0, 0.0));
+    let correction = Mat4::from_cols_array_2d(&[
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+    correction * projection * view
 }
